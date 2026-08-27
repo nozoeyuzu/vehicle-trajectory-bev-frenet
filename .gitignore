@@ -1,0 +1,8 @@
+# Keep source code and project documentation only.
+*
+!*/
+!*.py
+!README.md
+!.gitignore
+.venv/
+__pycache__/
