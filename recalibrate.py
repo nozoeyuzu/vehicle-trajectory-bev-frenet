@@ -39,7 +39,9 @@ CYCLE  = PAINT + GAP     # 20m
 LANE_W = 3.5
 KAPPA_MAX = 1.0 / 120.0
 
-
+# 与えられたκ(曲率)に対して、その曲率の円弧上の座標[m]を返す。
+# d_lat は基準線(d_lat=0 の線 = ラインA)からの横方向オフセット。
+# 画素は一切使わず、規格値とκだけから机上で「理想の白線」を作る関数。
 def world_on_curve(s, kappa, d_lat=0.0):
     s = np.asarray(s, dtype=float)
     if abs(kappa) < 1e-9:
@@ -63,7 +65,10 @@ def s_values(n_pairs, skips):
         s += [base, base + PAINT]
     return np.array(s)
 
-
+# world_on_curve()で作った理想の白線[m]と、クリック画素をHで変換した位置[m]の
+# ずれの二乗和が最小になるHを、最小二乗法で求める。
+# 返り値は (H, 各点の残差[m]の配列)。点が余っているので残差はゼロにならず、
+# その大きさが「このκの妥当性」を表す。
 def fit_H(img_pts, world_pts):
     import cv2
     H, _ = cv2.findHomography(np.float32(img_pts), np.float32(world_pts), 0)
@@ -75,6 +80,10 @@ def fit_H(img_pts, world_pts):
 
 
 def solve(ptsA, skipsA, ptsB, skipsB):
+    """κ, φ, sgn を総当たりして、残差最小の組み合わせとそのHを返す。
+    κは計算で求めるのではなく、候補を並べて残差で採点し選ぶ。
+    残差が採点に使えるのは、点が余っている(自由度8 < 方程式2N)ため。
+    """
     sA = s_values(len(ptsA) // 2, skipsA)
     sB = s_values(len(ptsB) // 2, skipsB) if len(ptsB) else None
     img = np.vstack([ptsA, ptsB]) if len(ptsB) else np.array(ptsA, float)
