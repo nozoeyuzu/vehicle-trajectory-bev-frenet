@@ -34,6 +34,13 @@ CAMERAS = {
     "P33C01_15min": dict(csv="P33C01_15min.csv", H="H_P33C01_WB.npy"),
     "P33C04_15min": dict(csv="P33C04_15min.csv", H="H_P33C04_WB.npy"),
     "P33C03_15min": dict(csv="P33C03_15min.csv", H="H_P33C03_EB.npy"),
+    # ポール P10（15分版, IMGSZ=1280）。P33 と同じくポールは WB 側、C03 だけ EB 車道を撮影
+    "P10C01_15min": dict(csv="P10C01_15min.csv", H="H_P10C01_WB.npy"),
+    "P10C02_15min": dict(csv="P10C02_15min.csv", H="H_P10C02_WB.npy"),
+    "P10C03_15min": dict(csv="P10C03_15min.csv", H="H_P10C03_EB.npy"),
+    "P10C04_15min": dict(csv="P10C04_15min.csv", H="H_P10C04_WB.npy"),
+    "P10C05_15min": dict(csv="P10C05_15min.csv", H="H_P10C05_WB.npy"),
+    "P10C06_15min": dict(csv="P10C06_15min.csv", H="H_P10C06_WB.npy"),
 }
 DEFAULT_CAMERAS = ["P33C01", "P33C02", "P33C03", "P33C04", "P33C05", "P33C06"]   # 引数なしで実行するカメラ
 H_IMAGE_W = 3840          # ホモグラフィが作られた画像の幅（I-24 MOTION は 4K）

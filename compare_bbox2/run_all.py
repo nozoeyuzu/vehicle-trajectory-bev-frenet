@@ -33,8 +33,9 @@ def main(cams):
         results.append(evaluate_refpoint.main(cam))
     allfs = pd.concat(results, ignore_index=True)
     # 一覧の出力先は CSV 名の共通部分から決める（例: P33C0x_5min → out_P33_5min2_summary）
+    poles = {base_name(c)[:len("P33")] for c in cams}
     suffixes = {base_name(c)[len("P33C0x"):] for c in cams}
-    d = os.path.join(ROOT, f"out_P33{'_'.join(sorted(suffixes))}2_summary")
+    d = os.path.join(ROOT, f"out_{'_'.join(sorted(poles))}{'_'.join(sorted(suffixes))}2_summary")
     os.makedirs(d, exist_ok=True)
     allfs.to_csv(os.path.join(d, "fstar_all.csv"), index=False)
     pd.set_option("display.width", 250)

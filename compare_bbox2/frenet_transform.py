@@ -46,11 +46,8 @@ MIN_BIN_N      = 4      # このサンプル数未満のビンは基準線の有
 POLY_DEG_REF   = 2      # 基準線フィットの次数（2=曲率一定から開始）
 CV_CHECK_DEG3  = True   # 車単位交差検証で2次と3次を比較して選ぶ
 TARGET_DIR     = "majority"  # 進行方向フィルタ: "majority"=多数派の向き / +1 か -1 で指定
-# TARGET_LANE    = "larger"    # "larger"=台数が多いクラスタ(通常は走行車線) / 数値で仮横位置[m]指定
-N_LANES = 5
-# _v が小さい順に 0,1,2,3,4
-# 中央の車線を基準線にするなら 2
-TARGET_LANE_INDEX = 2
+# 基準車線: 車線数は普通車の横位置の分布の山から自動検出し、真ん中の車線を使う
+#           （車線数が偶数なら、真ん中の2本のうち台数の多い方）
 EDGE_TRIM_M    = 3.0    # フィット時に有効範囲の両端から除外する長さ [m]。0.0で無効化
 S_VALID_MARGIN = 1.0    # convert時、有効範囲の端からこのマージン内も無効扱い [m]
 # ==================================
@@ -115,59 +112,15 @@ def _class_filter(df):
 #         c = newc
 #     return c.mean(), np.sort(c)
 
-def _split_k_clusters(vals, k=5):
-    """
-    1次元k-means。
-    車両ごとの横位置中央値を k 個の車線クラスタに分ける。
-
-    戻り値
-    -------
-    labels  : 各入力値のクラスタ番号
-    centers : 小さい順に並べたクラスタ中心
-    """
-    v = np.asarray(vals, dtype=float)
-
-    if len(v) < k:
-        raise RuntimeError(
-            f"車両数 {len(v)} 台では {k} クラスタに分割できません"
-        )
-
-    # 初期中心
-    # 5車線なら 10,30,50,70,90 percentile 付近から開始
-    q = np.linspace(10, 90, k)
-    centers = np.percentile(v, q)
-
-    for _ in range(100):
-        # 最も近い中心へ割り当て
-        labels = np.abs(
-            v[:, None] - centers[None, :]
-        ).argmin(axis=1)
-
-        new_centers = centers.copy()
-
-        for j in range(k):
-            x = v[labels == j]
-
-            if len(x) > 0:
-                new_centers[j] = np.mean(x)
-
-        if np.allclose(new_centers, centers):
-            break
-
-        centers = new_centers
-
-    # クラスタ番号を横位置の小さい順に揃える
-    order = np.argsort(centers)
-    centers = centers[order]
-
-    remap = np.empty(k, dtype=int)
-
-    for new_id, old_id in enumerate(order):
-        remap[old_id] = new_id
-
-    labels = remap[labels]
-
-    return labels, centers
+def find_lane_centers(d):
+    """車両ごとの横位置（中央値）の分布の山を車線中心とする。小さい順に返す。"""
+    from scipy.signal import find_peaks
+    d = pd.Series(np.asarray(d, dtype=float))
+    bins = np.arange(d.min() - 1, d.max() + 1, 0.2)
+    h, _ = np.histogram(d, bins)
+    hs = np.convolve(h, np.ones(3) / 3, "same")
+    pk, _ = find_peaks(hs, distance=int(2.5 / 0.2), height=3)
+    return np.array(sorted(d[(d > bins[p] - 1.2) & (d < bins[p] + 1.2)].median() for p in pk))
 
 def _bin_stats(coord, val, edges):
     """各ビンの中央値・MAD・サンプル数を返す。"""
@@ -278,23 +231,21 @@ def build_centerline_auto():
     # target_ids = med_v.index[lab == pick]
     # dfl = df[df.Vehicle_ID.isin(target_ids)].copy()
     # print(f"基準車線として v≈{centers[pick]:+.2f}m のクラスタ({len(target_ids)}台)を採用")
-    # ---- (2) 5車線に振り分け ----
+    # ---- (2) 車線を自動検出して振り分け ----
     med_v = df.groupby("Vehicle_ID")["_v"].median()
+    centers = find_lane_centers(med_v)
+    if len(centers) == 0:
+        raise RuntimeError("車線を検出できませんでした（普通車の台数が少なすぎる可能性があります）")
 
-    labels, centers = _split_k_clusters(
-        med_v.to_numpy(),
-        k=N_LANES
-    )
-
-    # Vehicle_ID をindexとしてクラスタ番号を持つ
+    # Vehicle_ID をindexとして最寄りの車線番号を持つ
     lane_label = pd.Series(
-        labels,
+        np.abs(med_v.to_numpy()[:, None] - centers[None, :]).argmin(axis=1),
         index=med_v.index
     )
 
-    print("車線クラスタ:")
+    print(f"車線クラスタ（自動検出 {len(centers)}車線）:")
 
-    for j in range(N_LANES):
+    for j in range(len(centers)):
         n_j = int((lane_label == j).sum())
 
         print(
@@ -318,8 +269,9 @@ def build_centerline_auto():
                 f"{x:.2f}m が不自然です"
             )
 
-    # 指定した1車線だけを中心線生成に使用
-    pick = TARGET_LANE_INDEX
+    # 真ん中の車線だけを中心線生成に使用（偶数車線なら真ん中2本のうち台数の多い方）
+    mids = sorted({(len(centers) - 1) // 2, len(centers) // 2})
+    pick = max(mids, key=lambda j: int((lane_label == j).sum()))
 
     target_ids = lane_label.index[
         lane_label == pick

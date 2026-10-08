@@ -12,7 +12,7 @@ assign_lane_occupancy.py — 車両ごとの代表値・クラス（大きさ基
     そこで大型車の車線は f に依存しない「占有」で決める。
 
 手順:
-    1. 車線中心   : 普通車の d 中央値（f=0.5）のヒストグラムの山。中央分離帯（間隔 > CARRIAGEWAY_GAP_M）で
+    1. 車線中心   : 普通車の d 中央値（f=0.5）のヒストグラムの山。中央分離帯（間隔 > 車線間隔の中央値 × CARRIAGEWAY_GAP_RATIO）で
                     車道を分け、中心線（d=0）を含む側＝ホモグラフィの車道だけを評価する
     2. クラス     : 同じ車線の普通車の bbox 中央値に対する大きさ size = √(幅比×高さ比)
                     car    = Class 2 かつ size < SIZE_CAR_MAX
@@ -41,7 +41,6 @@ assign_lane_occupancy.py — 車両ごとの代表値・クラス（大きさ基
 import sys
 import numpy as np
 import pandas as pd
-from scipy.signal import find_peaks
 
 import frenet_transform as ft
 from common import CAMERAS, DEFAULT_CAMERAS, F_VALUES, out_dir, out_path, col, load_H, camera_position
@@ -52,7 +51,8 @@ MIN_FRAMES        = 20     # これ未満の車両は除外
 LANE_CHANGE_M     = 2.0    # 追跡前半1/4と後半1/4の d 中央値の差が「どの f でも」これを超えたら車線変更として除外
                            # （f=0.5 だけで判定すると、遠ざかる大型車は bbox の形の変化で点が横に流れ、
                            #   車線変更していないのに除外される。本当の車線変更はどの f でも d が変わる）
-CARRIAGEWAY_GAP_M = 7.0    # 車線中心の間隔がこれを超えたら中央分離帯とみなす
+CARRIAGEWAY_GAP_RATIO = 1.5   # 車線中心の間隔が「間隔の中央値」のこの倍数を超えたら中央分離帯とみなす
+                              # （固定の距離にすると、分離帯の狭い道路で車道を分けられない）
 REF_OFF_M         = 1.0    # 占有判定の基準車: 車線中心からこの範囲内の普通車サイズの車両
 LANE_HALF_M       = 1.85   # 普通車・ピックアップの車線割り当ての許容（半車線）
 SIZE_CAR_MAX      = 1.4    # これ未満 = 普通車サイズ
@@ -106,15 +106,6 @@ def per_vehicle(df):
     return v
 
 
-def find_lane_centers(d):
-    """d 中央値の分布の山を車線中心とする。"""
-    bins = np.arange(d.min() - 1, d.max() + 1, 0.2)
-    h, _ = np.histogram(d, bins)
-    hs = np.convolve(h, np.ones(3) / 3, "same")
-    pk, _ = find_peaks(hs, distance=int(2.5 / 0.2), height=3)
-    return np.array(sorted(d[(d > bins[p] - 1.2) & (d < bins[p] + 1.2)].median() for p in pk))
-
-
 def nearest(values, centers):
     i = np.abs(np.asarray(values)[:, None] - centers[None, :]).argmin(1)
     return i, np.asarray(values) - centers[i]
@@ -162,8 +153,9 @@ def main(cam):
     v = v[(v.n >= MIN_FRAMES) & v.cls.isin([2, 5, 7])].copy()
 
     # ---- 1. 車線中心と車道 ----
-    cen_all = find_lane_centers(v[v.cls == 2].d_med)
-    groups = np.split(cen_all, np.where(np.diff(cen_all) > CARRIAGEWAY_GAP_M)[0] + 1)
+    cen_all = ft.find_lane_centers(v[v.cls == 2].d_med)
+    gap = np.diff(cen_all)
+    groups = np.split(cen_all, np.where(gap > CARRIAGEWAY_GAP_RATIO * np.median(gap))[0] + 1)
     own = min(groups, key=lambda g: np.abs(g).min())          # 中心線（d=0）を含む車道
     i, _ = nearest(v.d_med, cen_all)
     v = v[np.isin(cen_all[i], own)].copy()                    # 対向車道（別の H が必要）は除外
