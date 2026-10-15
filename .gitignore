@@ -3,6 +3,7 @@
 !*/
 !*.py
 !README.md
+!paper/*.md
 !.gitignore
 .venv/
 __pycache__/
