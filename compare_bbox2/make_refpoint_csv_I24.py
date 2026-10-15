@@ -7,6 +7,7 @@ make_refpoint_csv_I24.py — bbox下辺上の基準点 f ごとに路面座標�
 
 処理:
     bbox基準点 (1080p画素) → ×SCALE(=2) で 4K画素 → Homography → State Plane [ft] → [m]
+    （I-24 以外のデータは common.py の CAMERAS の video_size / h_scale / unit に従う）
 
 出力（out_<CSV名>2/）:
     <CSV名>_refpoints.csv  元の列 + f ごとの X_meter_f, Y_meter_f
@@ -17,14 +18,14 @@ import sys
 import numpy as np
 import pandas as pd
 
-from common import CAMERAS, DEFAULT_CAMERAS, ROOT, F_VALUES, SCALE, base_name, out_path, load_H, apply_homography, col
+from common import CAMERAS, DEFAULT_CAMERAS, ROOT, F_VALUES, base_name, out_path, load_H, apply_homography, col
 import os
 
 
 def main(cam):
     H = load_H(cam)
     df = pd.read_csv(os.path.join(ROOT, CAMERAS[cam]["csv"]))
-    print(f"[{cam}] 入力 {CAMERAS[cam]['csv']} ({len(df)}行, {df.Vehicle_ID.nunique()}台)  H={CAMERAS[cam]['H']}  SCALE={SCALE}")
+    print(f"[{cam}] 入力 {CAMERAS[cam]['csv']} ({len(df)}行, {df.Vehicle_ID.nunique()}台)  H={CAMERAS[cam]['H']}")
 
     # X_pixel / Y_pixel が下辺中央かの確認（元コードと同じ）
     err = np.abs((df.BBox_x1 + df.BBox_x2) / 2 - df.X_pixel).max()

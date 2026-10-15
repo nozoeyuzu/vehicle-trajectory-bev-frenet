@@ -13,7 +13,8 @@ assign_lane_occupancy.py — 車両ごとの代表値・クラス（大きさ基
 
 手順:
     1. 車線中心   : 普通車の d 中央値（f=0.5）のヒストグラムの山。中央分離帯（間隔 > 車線間隔の中央値 × CARRIAGEWAY_GAP_RATIO）で
-                    車道を分け、中心線（d=0）を含む側＝ホモグラフィの車道だけを評価する
+                    車道を分け、中心線（d=0）を含む側＝ホモグラフィの車道だけを評価する。
+                    さらに、中心線に一番近い車線と画像上で逆向きに走る車線（対向車線）も除く
     2. クラス     : 同じ車線の普通車の bbox 中央値に対する大きさ size = √(幅比×高さ比)
                     car    = Class 2 かつ size < SIZE_CAR_MAX
                     pickup = Class 5/7 かつ size < SIZE_CAR_MAX（COCO の truck にはピックアップが含まれる）
@@ -43,7 +44,7 @@ import numpy as np
 import pandas as pd
 
 import frenet_transform as ft
-from common import CAMERAS, DEFAULT_CAMERAS, F_VALUES, out_dir, out_path, col, load_H, camera_position
+from common import CAMERAS, DEFAULT_CAMERAS, F_VALUES, out_dir, out_path, col, load_H, camera_position, video_size
 import os
 
 # ============== 設定 ==============
@@ -158,13 +159,23 @@ def main(cam):
     groups = np.split(cen_all, np.where(gap > CARRIAGEWAY_GAP_RATIO * np.median(gap))[0] + 1)
     own = min(groups, key=lambda g: np.abs(g).min())          # 中心線（d=0）を含む車道
     i, _ = nearest(v.d_med, cen_all)
+    # 対向車線の除外: 車線中心が少ない（間隔が2つ程度）と中央値が分離帯の幅に引っ張られ、上の方法で分けられない。
+    # 中心線（d=0）に一番近い車線と、画像上で逆向きに走る普通車が多い車線は、対向車線として評価しない
+    mv = v[(v.cls == 2) & (np.hypot(v.dx_px, v.dy_px) > 50)]
+    ui = nearest(mv.d_med, cen_all)[0]
+    u = mv[["dx_px", "dy_px"]].to_numpy() / np.hypot(mv.dx_px, mv.dy_px).to_numpy()[:, None]
+    ref = u[cen_all[ui] == own[np.abs(own).argmin()]].sum(0)
+    opposite = [c for c in own if (u[cen_all[ui] == c] @ ref < 0).mean() > 0.5]
+    if opposite:
+        print(f"  対向車線として除外（画像上で逆向きに走る）: {np.round(opposite, 2)}")
+        own = own[~np.isin(own, opposite)]
     v = v[np.isin(cen_all[i], own)].copy()                    # 対向車道（別の H が必要）は除外
     print(f"[{cam}] 車線中心 {np.round(cen_all, 2)} → 評価する車道 {np.round(own, 2)}")
     print(f"  車線間隔 {np.round(np.diff(own), 2)} m （正しく換算できていれば約3.6〜3.9 m）")
 
     # ---- カメラ位置と車線名（カメラに近い順に L1, L2, ...） ----
     cxy, s, tan = ft.fit_centerline(np.load(os.path.join(out_dir(cam), "centerline_f0.500.npy")))
-    cam_xy, cam_h, foc = camera_position(load_H(cam), cxy.mean(0))
+    cam_xy, cam_h, foc = camera_position(load_H(cam), cxy.mean(0), video_size(cam))
     _, cam_d = ft.cart_to_frenet(cam_xy[None, :], cxy, s, tan)
     cam_d = float(cam_d[0])
     order = np.argsort(np.abs(own - cam_d))
