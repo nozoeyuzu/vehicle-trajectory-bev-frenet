@@ -7,3 +7,4 @@
 !.gitignore
 .venv/
 __pycache__/
+!out_paper_tables/*.md
